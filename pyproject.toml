@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "driftlab"
+version = "0.1.0"
+description = "Local-first momentum research CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "typer>=0.15",
+  "yfinance>=0.2.54",
+  "python-dotenv>=1.0",
+  "typesafe-sdk>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+driftlab = "driftlab.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/driftlab"]

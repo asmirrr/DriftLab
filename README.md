@@ -1,2 +1,91 @@
 # DriftLab
-Reproducible quantitative research CLI for testing momentum strategies and auditing research methodology with TypeSafe Jev.
+
+## What It Is
+
+DriftLab is a local-first Python CLI for reproducible historical momentum research. It is an educational research tool, not a prediction, trading, brokerage, portfolio-management, or investment-advice product.
+
+## Research Question
+
+Among a user-supplied basket of liquid U.S. stocks, does a monthly-rebalanced equal-weighted portfolio of the top N trailing-momentum names outperform an equal-weighted buy-and-hold portfolio of the same tickers after modeled transaction costs?
+
+## Why This Is Not a Prediction Tool
+
+Historical exploratory results do not predict future performance. DriftLab never generates trading instructions or recommendations.
+
+## Methodology
+
+Trailing momentum is price today divided by price `lookback` trading days ago, minus one. On the last actual trading day of each month, DriftLab ranks available signals and uses alphabetical ticker order to break ties. The selected weights affect returns on the following trading day, preventing look-ahead. Transaction cost is turnover multiplied by basis points divided by 10,000; the initial cash-to-portfolio allocation is charged.
+
+The benchmark is **true equal-weight buy-and-hold**: equal capital is allocated once at the initial investable date; positions then drift and are never rebalanced. This is deliberately different from applying constant equal weights each day, which would imply rebalancing.
+
+## Installation
+
+Python 3.11 or newer is required. On PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+## Running a Backtest
+
+```powershell
+python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10
+```
+
+## Running a Jev Audit
+
+Jev reviews only the completed compact research record. Python exclusively owns prices, returns, metrics, selection, weights, and costs. Jev cannot modify a run or automatically perform its suggested experiment.
+
+```powershell
+$env:AI_GATEWAY_API_KEY="your_vercel_ai_gateway_key_here"
+python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10 --audit-with-jev
+```
+
+DriftLab uses the official `typesafe-sdk` through Vercel AI Gateway's TypeSafe-compatible endpoint with model `typesafe-ai/jev`. A missing key or failed audit does not invalidate or remove deterministic outputs. Audit an existing record without data download:
+
+```powershell
+python -m driftlab audit outputs\<run_id>_research_record.json
+```
+
+## Output Files
+
+Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report. A successful audit also writes Jev audit JSON.
+
+## Understanding the Metrics
+
+Annualized return converts the observed compounded result to a 252-trading-day rate. Annualized volatility measures daily-return variation. Sharpe ratio is return per unit of volatility assuming zero risk-free rate. Maximum drawdown is the deepest peak-to-trough equity decline.
+
+## Why Jev Is Used
+
+Jev classifies documented research-process limitations and suggests one next experiment. It never calculates, forecasts, chooses securities, changes parameters, or executes an action.
+
+## Confidence Policy
+
+Choice answers below 0.65 display as “Ambiguous — no automated conclusion assigned.” Score results retain their numeric 0–2 position, probabilities, and confidence; scores below 0.65 require caution. Noul is displayed as a probability without a forced binary conclusion.
+
+## Research Limitations
+
+Historical performance does not predict future performance. Prototype yfinance data may have quality, coverage, adjustment, and availability limitations. A current hand-selected ticker list can create survivorship and selection bias. A small universe is not representative of the full market. Simplified costs omit real execution frictions. Testing many variants can overfit historical data. A separate out-of-sample test is necessary before stronger interpretation. The tool provides no investment advice. Jev is a methodology aid, not a market forecast or investment recommendation.
+
+## Development and Tests
+
+```powershell
+pytest -q
+python -m driftlab --help
+```
+
+## Next Experiments
+
+1. Compare 63-, 126-, and 252-trading-day momentum windows.
+2. Compare top-1, top-3, and top-5 portfolio sizes.
+3. Test several cost assumptions, such as 5, 10, 25, and 50 basis points.
+4. Add a time-based development versus holdout split.
+5. Add SPY as a separate informational benchmark.
+6. Test a broader pre-specified universe.
+7. Replace prototype data ingestion with a more controlled provider and dataset.
+
+## Disclaimer
+
+DriftLab is educational software for historical research. It provides no investment advice.
