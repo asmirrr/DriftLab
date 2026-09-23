@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date
+import math
 
 
 class ConfigurationError(ValueError):
@@ -32,6 +33,6 @@ class RunConfig:
             raise ConfigurationError("--holdings must be between 1 and the number of requested tickers.")
         if rebalance != "monthly":
             raise ConfigurationError("Only --rebalance monthly is supported.")
-        if cost_bps < 0:
-            raise ConfigurationError("--cost-bps must be nonnegative.")
+        if not math.isfinite(cost_bps) or cost_bps < 0:
+            raise ConfigurationError("--cost-bps must be a finite nonnegative number.")
         return cls(normalized, start, end, lookback, holdings, rebalance, float(cost_bps))

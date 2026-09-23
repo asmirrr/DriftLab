@@ -10,7 +10,7 @@ from .config import ConfigurationError, RunConfig
 from .data import DataError, fetch_prices
 from .engine import run_backtest
 from .jev_audit import JevAuditError, audit_research_record
-from .reporting import write_artifacts
+from .reporting import update_jev_artifacts, write_baseline_artifacts
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -45,16 +45,21 @@ def run(
         result = run_backtest(config, data.prices)
     except (ConfigurationError, DataError) as error:
         _fail(str(error))
+    paths = write_baseline_artifacts(result, output_dir)
     audit = None
     audit_error = None
     if audit_with_jev:
         load_dotenv()
         try:
             audit = audit_research_record(result.research_record())
-        except JevAuditError as error:
+        except Exception as error:
             audit_error = str(error)
             typer.secho(f"Warning: {audit_error}", fg=typer.colors.YELLOW, err=True)
-    paths = write_artifacts(result, output_dir, audit, audit_error)
+        try:
+            paths = update_jev_artifacts(result, paths, audit, audit_error)
+        except Exception as error:
+            audit_error = f"Jev artifact update failed: {error}"
+            typer.secho(f"Warning: {audit_error}", fg=typer.colors.YELLOW, err=True)
     typer.echo("DriftLab — Momentum Research Run\n")
     typer.echo("Universe requested: " + ", ".join(config.tickers))
     typer.echo("Universe used: " + ", ".join(result.price_data.valid_tickers))

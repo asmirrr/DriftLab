@@ -1,34 +1,61 @@
 """Stable artifact writers and human-facing report rendering."""
 
 import json
+import math
 from pathlib import Path
 from typing import Any
+
 from .engine import BacktestResult, RESEARCH_QUESTION
 
 
 def _fmt(value: float | None, percent: bool = False) -> str:
-    if value is None:
+    if value is None or not math.isfinite(value):
         return "N/A"
     return f"{value:.2%}" if percent else f"{value:.2f}"
 
 
-def write_artifacts(result: BacktestResult, output_dir: Path, audit: dict[str, Any] | None = None,
-                    audit_error: str | None = None) -> dict[str, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
+def artifact_paths(result: BacktestResult, output_dir: Path) -> dict[str, Path]:
     prefix = output_dir / result.run_id
-    paths = {"daily": prefix.with_name(prefix.name + "_daily.csv"),
-             "rebalances": prefix.with_name(prefix.name + "_rebalances.csv"),
-             "record": prefix.with_name(prefix.name + "_research_record.json"),
-             "report": prefix.with_name(prefix.name + "_report.md")}
+    return {"daily": prefix.with_name(prefix.name + "_daily.csv"),
+            "rebalances": prefix.with_name(prefix.name + "_rebalances.csv"),
+            "record": prefix.with_name(prefix.name + "_research_record.json"),
+            "report": prefix.with_name(prefix.name + "_report.md")}
+
+
+def _write_text_atomically(path: Path, content: str) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(path)
+
+
+def write_baseline_artifacts(result: BacktestResult, output_dir: Path) -> dict[str, Path]:
+    """Persist all deterministic artifacts before any optional Jev invocation."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = artifact_paths(result, output_dir)
     result.daily.reset_index().to_csv(paths["daily"], index=False)
     result.portfolio.rebalances.to_csv(paths["rebalances"], index=False)
-    record = result.research_record()
-    paths["record"].write_text(json.dumps(record, indent=2, allow_nan=False), encoding="utf-8")
-    if audit is not None:
-        paths["audit"] = prefix.with_name(prefix.name + "_jev_audit.json")
-        paths["audit"].write_text(json.dumps(audit, indent=2, allow_nan=False), encoding="utf-8")
-    paths["report"].write_text(render_report(result, paths, audit, audit_error), encoding="utf-8")
+    _write_text_atomically(paths["record"], json.dumps(result.research_record(), indent=2, allow_nan=False))
+    _write_text_atomically(paths["report"], render_report(result, paths, None, None))
     return paths
+
+
+def update_jev_artifacts(result: BacktestResult, paths: dict[str, Path], audit: dict[str, Any] | None,
+                         audit_error: str | None = None) -> dict[str, Path]:
+    """Add a Jev result or failure note without rewriting deterministic artifacts."""
+    updated = dict(paths)
+    if audit is not None:
+        audit_path = paths["record"].with_name(paths["record"].name.replace("_research_record.json", "_jev_audit.json"))
+        _write_text_atomically(audit_path, json.dumps(audit, indent=2, allow_nan=False))
+        updated["audit"] = audit_path
+    _write_text_atomically(paths["report"], render_report(result, updated, audit, audit_error))
+    return updated
+
+
+def write_artifacts(result: BacktestResult, output_dir: Path, audit: dict[str, Any] | None = None,
+                    audit_error: str | None = None) -> dict[str, Path]:
+    """Compatibility wrapper for callers that do not need staged persistence."""
+    paths = write_baseline_artifacts(result, output_dir)
+    return update_jev_artifacts(result, paths, audit, audit_error) if (audit is not None or audit_error) else paths
 
 
 def render_report(result: BacktestResult, paths: dict[str, Path], audit: dict[str, Any] | None,
@@ -65,17 +92,19 @@ def render_report(result: BacktestResult, paths: dict[str, Path], audit: dict[st
 
 ## Historical Setup
 
-Requested range: {config.start} to {config.end}. Analyzed range: {result.daily.index[0].date()} to {result.daily.index[-1].date()}. Signal: {config.lookback}-trading-day trailing momentum; Top {config.holdings}; monthly rebalance; {config.cost_bps:g} bps per turnover unit.
+Requested data range: [{config.start}, {config.end}) (end exclusive). Available data range: {result.data_start.date()} to {result.data_end.date()}. Allocation decision date: {result.allocation_date.date()}; performance-return dates: {result.performance_start.date()} to {result.data_end.date()}. Signal: {config.lookback}-trading-day trailing momentum; Top {config.holdings}; monthly rebalance; {config.cost_bps:g} bps per turnover unit.
 
 ## Universe and Data
 
-Requested: {', '.join(config.tickers)}. Valid: {', '.join(result.price_data.valid_tickers)}. Excluded: {', '.join(result.price_data.excluded_tickers) or 'None'}. Data source: yfinance adjusted-close data.
+Requested: {', '.join(config.tickers)}. Valid: {', '.join(result.price_data.valid_tickers)}. Excluded: {', '.join(result.price_data.excluded_tickers) or 'None'}. Data source: yfinance `Adj Close` with `auto_adjust=False`; raw `Close` is rejected. DriftLab rejects missing expected regular NYSE sessions and does not fill prices.
 
 ## Methodology
 
-At each last actual trading day of a month, DriftLab ranks available trailing momentum and assigns equal target weights to the top assets. Alphabetical ticker order breaks tied signals. A selection uses prices available at that close and affects returns only from the following trading day, preventing look-ahead. Initial cash-to-portfolio allocation is included in turnover and costs.
+At each completed calendar month's last available trading session, DriftLab ranks trailing momentum and assigns equal target weights to the top assets. Alphabetical ticker order breaks tied signals. A selection uses prices available at that close and affects returns only from the following trading session, preventing same-day look-ahead. A terminal decision without a following in-range session is not executed. Initial cash-to-portfolio allocation is included in turnover and costs.
 
-The benchmark is **true equal-weight buy-and-hold**: equal capital is invested once at the initial investable date, positions then drift with price changes, and it is never rebalanced. This differs from applying fixed equal weights every day, which would implicitly rebalance.
+The strategy is a **constant-target-weight approximation**: target weights remain fixed between scheduled rebalances. It does not model maintenance trades that would be required to keep actual holdings at those target weights as prices move, and it therefore omits those maintenance costs.
+
+The benchmark is **true equal-weight buy-and-hold**: equal capital is invested once at the allocation date, positions then drift with price changes, and it is never rebalanced. The benchmark has no modeled entry cost, while the strategy includes its entry transaction cost; the comparison is net strategy performance versus gross buy-and-hold performance.
 
 ## Strategy vs Benchmark
 
@@ -83,9 +112,11 @@ The benchmark is **true equal-weight buy-and-hold**: equal capital is invested o
 |---|---:|---:|
 {rows}
 
+Annualized return uses only the {s.investable_trading_days} market-return observations after allocation. The allocation-close cost is included in cumulative return, volatility, Sharpe ratio, and drawdown.
+
 ## Turnover and Costs
 
-Strategy turnover: {s.total_turnover:.4f}; average daily turnover: {s.average_daily_turnover:.6f}; rebalance events: {s.rebalance_events}. Costs equal turnover × {config.cost_bps:g}/10,000 and apply only on rebalance events.
+Strategy turnover: {s.total_turnover:.4f}; average daily turnover: {s.average_daily_turnover:.6f}; executed rebalance decisions: {s.rebalance_events}. Costs equal turnover × {config.cost_bps:g}/10,000 and apply only on ledgered allocation decisions.
 
 ## Jev Research Audit
 
@@ -93,7 +124,7 @@ Strategy turnover: {s.total_turnover:.4f}; average daily turnover: {s.average_da
 
 ## Limitations and Caveats
 
-Historical performance does not predict future performance. yfinance data may have quality, coverage, adjustment, and availability limitations. A current hand-selected ticker list can create survivorship and selection bias; a small universe is not representative of the full market. Transaction-cost modeling is simplified and omits real execution frictions. Testing many variants can overfit historical data. A separate out-of-sample test is necessary before stronger interpretation. DriftLab provides no investment advice. Jev output is a methodology aid, not a market forecast or investment recommendation.
+Historical performance does not predict future performance. yfinance data may have quality, coverage, adjustment, and availability limitations. The regular-session calendar does not model extraordinary exchange closures. A current hand-selected ticker list can create survivorship and selection bias; a small universe is not representative of the full market. Transaction-cost modeling is simplified and omits real execution frictions. Testing many variants can overfit historical data. A separate out-of-sample test is necessary before stronger interpretation. DriftLab provides no investment advice. Jev output is a methodology aid, not a market forecast or investment recommendation.
 
 ## Reproducibility
 

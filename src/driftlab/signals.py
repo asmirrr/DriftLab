@@ -8,6 +8,9 @@ def trailing_momentum(prices: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return prices / prices.shift(lookback) - 1.0
 
 
-def month_end_dates(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+def completed_month_end_dates(index: pd.DatetimeIndex, end_exclusive: pd.Timestamp) -> pd.DatetimeIndex:
+    """Last actual sessions only for calendar months complete before the configured end."""
     periods = index.to_period("M")
-    return pd.DatetimeIndex(index.to_series().groupby(periods).max().tolist())
+    dates = index.to_series().groupby(periods).max()
+    complete = [when for period, when in dates.items() if pd.Timestamp(period.end_time.date()) < end_exclusive]
+    return pd.DatetimeIndex(complete)
