@@ -1,0 +1,92 @@
+{
+  "run_id": "run_20260924_163918_e71aba",
+  "research_question": "Among a user-supplied basket of liquid U.S. stocks, does a monthly-rebalanced, equal-weighted portfolio that holds the top N stocks by trailing momentum outperform an equal-weighted buy-and-hold portfolio of the same tickers after modeled transaction costs?",
+  "requested_tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "GOOGL",
+    "META"
+  ],
+  "valid_tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "GOOGL",
+    "META"
+  ],
+  "excluded_tickers": [],
+  "data_source": "yfinance",
+  "requested_start": "2020-01-01",
+  "requested_end": "2026-01-01",
+  "data_start": "2020-01-02",
+  "data_end": "2025-12-31",
+  "allocation_date": "2020-07-31",
+  "performance_start": "2020-08-03",
+  "actual_start": "2020-08-03",
+  "actual_end": "2025-12-31",
+  "strategy": {
+    "name": "Top-N Trailing Momentum",
+    "lookback_trading_days": 126,
+    "holdings": 3,
+    "rebalance_frequency": "monthly",
+    "cost_bps": 10.0,
+    "long_only": true,
+    "weighting": "equal_weighted_target_weights"
+  },
+  "research_process": {
+    "parameter_sets_tested": 1,
+    "out_of_sample_test": false,
+    "historical_constituents_used": false,
+    "data_notes": [
+      "Prices are finite positive adjusted closes with no missing regular NYSE sessions in the common usable range.",
+      "Benchmark is true equal-weight buy-and-hold: capital is allocated once and holdings drift without rebalancing.",
+      "Benchmark entry is cost-free; results compare net strategy returns to a gross buy-and-hold benchmark.",
+      "Strategy uses constant target weights between rebalances; maintenance trading and its costs are not modeled.",
+      "Strategy target weights selected at month-end affect returns from the next trading day.",
+      "The allocation-close cost is included in cumulative performance; annualization uses subsequent market-return days."
+    ]
+  },
+  "metadata": {
+    "python_version": "3.14.4",
+    "package_versions": {
+      "numpy": "2.5.3",
+      "pandas": "3.0.6",
+      "typesafe-sdk": "0.7.0",
+      "yfinance": "1.7.0"
+    },
+    "code_version": "0.1.0",
+    "parameter_sets_tested_scope": "configurations evaluated in this invocation only"
+  },
+  "strategy_metrics": {
+    "cumulative_return": 5.038571790930081,
+    "annualized_return": 0.3950706407004907,
+    "annualized_volatility": 0.3159516156381389,
+    "sharpe_ratio": 1.2121103370255,
+    "maximum_drawdown": -0.4433058237550802,
+    "average_daily_turnover": 0.01590797846304454,
+    "total_turnover": 21.666666666666664,
+    "rebalance_events": 65,
+    "investable_trading_days": 1361,
+    "valid_tickers": 6
+  },
+  "benchmark_metrics": {
+    "cumulative_return": 4.176021816951121,
+    "annualized_return": 0.3558201049707297,
+    "annualized_volatility": 0.32553192639993056,
+    "sharpe_ratio": 1.097908028320578,
+    "maximum_drawdown": -0.47555008175536584,
+    "average_daily_turnover": 0.0,
+    "total_turnover": 0.0,
+    "rebalance_events": 0,
+    "investable_trading_days": 1361,
+    "valid_tickers": 6
+  },
+  "turnover": {
+    "average_daily_turnover": 0.01590797846304454,
+    "total_turnover": 21.666666666666664,
+    "rebalance_events": 65
+  }
+}
