@@ -71,3 +71,12 @@ def test_unavailable_ticker_is_excluded_and_reduced_holdings_are_equal_weighted(
     assert result.price_data.excluded_tickers == ("CCC",)
     weights = result.portfolio.target_weights.loc[result.allocation_date]
     assert weights.to_dict() == {"AAA": .5, "BBB": .5}
+
+
+def test_rebalance_events_come_from_ledger_even_when_later_turnover_is_zero(prices: pd.DataFrame) -> None:
+    config = RunConfig.create(["AAA", "BBB", "CCC"], date(2024, 1, 2), date(2024, 5, 20), lookback=20, holdings=1)
+    result = run_backtest(config, prices)
+    ledger_events = result.portfolio.rebalances["rebalance_date"].nunique()
+    positive_turnover_events = int((result.daily["turnover"] > 0).sum())
+    assert result.strategy_metrics.rebalance_events == ledger_events
+    assert ledger_events > positive_turnover_events

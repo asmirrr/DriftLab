@@ -1,4 +1,5 @@
 from datetime import date
+import json
 
 import pandas as pd
 import pytest
@@ -29,3 +30,14 @@ def test_report_documents_target_weight_and_benchmark_cost_conventions(prices, t
     assert "constant-target-weight approximation" in report
     assert "benchmark has no modeled entry cost" in report
     assert "end exclusive" in report
+
+
+def test_csv_json_and_report_agree_on_cumulative_return(prices, tmp_path) -> None:
+    result = _result(prices)
+    paths = write_baseline_artifacts(result, tmp_path)
+    daily = pd.read_csv(paths["daily"])
+    record = json.loads(paths["record"].read_text(encoding="utf-8"))
+    report = paths["report"].read_text(encoding="utf-8")
+    cumulative = daily["strategy_equity"].iloc[-1] - 1.0
+    assert cumulative == pytest.approx(record["strategy_metrics"]["cumulative_return"])
+    assert f"{cumulative:.2%}" in report
