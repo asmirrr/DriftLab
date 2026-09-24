@@ -16,7 +16,7 @@ def test_mocked_jev_response_normalizes_and_low_confidence_is_ambiguous(monkeypa
                  "next_experiment": _answer(choice="out_of_sample_split", confidence=0.9, probabilities={"out_of_sample_split": 0.7, "cost_sensitivity": 0.1, "parameter_sensitivity": 0.1, "universe_expansion": 0.1})},
         scores={"overfitting_risk": _answer(score=1.1, confidence=0.7, probabilities={0: 0, 1: .9, 2: .1}, legend={0: "low", 1: "medium", 2: "high"})},
         nouls={"survivorship_bias_material": _answer(noul=.94)},
-        model="typesafe-ai/jev",
+        model="jev-latest",
     )
     normalized = normalize_response(response, "run_x")
     assert normalized["answers"]["design_status"]["display_value"].startswith("Ambiguous")
@@ -24,9 +24,10 @@ def test_mocked_jev_response_normalizes_and_low_confidence_is_ambiguous(monkeypa
     assert normalized["answers"]["overfitting_risk"]["score"] == 1.1
 
 
-def test_missing_gateway_key_is_clear(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("AI_GATEWAY_API_KEY", raising=False)
-    with pytest.raises(JevAuditError, match="AI_GATEWAY_API_KEY"):
+def test_missing_direct_key_is_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "unused-gateway-key")
+    with pytest.raises(JevAuditError, match="TYPESAFE_API_KEY"):
         audit_research_record(_valid_record())
 
 
@@ -91,7 +92,7 @@ def test_jev_record_schema_rejects_null_or_smuggled_nested_payload() -> None:
 def test_jev_response_rejects_probability_contradictions_and_unsafe_legend() -> None:
     def response():
         return SimpleNamespace(
-            model="typesafe-ai/jev",
+            model="jev-latest",
             choices={"design_status": _answer(choice="exploratory_ready", confidence=1, probabilities={"exploratory_ready": .1, "validation_ready": .9, "insufficient": 0}),
                      "result_label": _answer(choice="inconclusive", confidence=1, probabilities={"inconclusive": 1, "exploratory_signal": 0, "requires_validation": 0}),
                      "next_experiment": _answer(choice="cost_sensitivity", confidence=1, probabilities={"out_of_sample_split": 0, "parameter_sensitivity": 0, "cost_sensitivity": 1, "universe_expansion": 0})},
@@ -119,15 +120,15 @@ def test_installed_typesafe_sdk_uses_mocked_http_and_parses_typed_response() -> 
         captured["url"] = str(request.url)
         captured["authorization"] = request.headers.get("authorization")
         captured["body"] = json.loads(request.content)
-        return httpx2.Response(200, json={"model": "typesafe-ai/jev", "usage": {}, "answers": {
+        return httpx2.Response(200, json={"model": "jev-latest", "usage": {}, "answers": {
             "choice": {"type": "choice", "choice": "yes", "confidence": .9, "probabilities": {"yes": .9, "no": .1}}}})
 
-    with TypeSafeClient(api_key="test-key", base_url="https://ai-gateway.vercel.sh/typesafe", model="typesafe-ai/jev",
+    with TypeSafeClient(api_key="test-key", base_url="https://api.typesafe.ai", model="jev-latest",
                         retry=RetryPolicy(max_retries=0), transport=httpx2.MockTransport(handler)) as client:
         response = client.system_one({"run_id": "x"}, {"choice": Choice(instructions="test", criteria={"yes": "yes", "no": "no"})})
-    assert captured["url"].startswith("https://ai-gateway.vercel.sh/typesafe")
+    assert captured["url"] == "https://api.typesafe.ai/v1/systemone"
     assert captured["authorization"] == "Bearer test-key"
-    assert captured["body"]["model"] == "typesafe-ai/jev"
+    assert captured["body"]["model"] == "jev-latest"
     assert response.choices["choice"].choice == "yes"
 
 
@@ -135,7 +136,7 @@ def test_audit_adapter_rejects_contradictory_mocked_sdk_http_response(monkeypatc
     import httpx2
     import typesafe_sdk
     real_client = typesafe_sdk.TypeSafeClient
-    body = {"model": "typesafe-ai/jev", "usage": {}, "answers": {
+    body = {"model": "jev-latest", "usage": {}, "answers": {
         "design_status": {"type": "choice", "choice": "exploratory_ready", "confidence": 1, "probabilities": {"insufficient": 0, "exploratory_ready": .1, "validation_ready": .9}},
         "result_label": {"type": "choice", "choice": "inconclusive", "confidence": 1, "probabilities": {"inconclusive": 1, "exploratory_signal": 0, "requires_validation": 0}},
         "next_experiment": {"type": "choice", "choice": "cost_sensitivity", "confidence": 1, "probabilities": {"out_of_sample_split": 0, "parameter_sensitivity": 0, "cost_sensitivity": 1, "universe_expansion": 0}},
@@ -146,7 +147,33 @@ def test_audit_adapter_rejects_contradictory_mocked_sdk_http_response(monkeypatc
         return httpx2.Response(200, json=body)
     def client_factory(**kwargs):
         return real_client(**kwargs, transport=httpx2.MockTransport(handler))
-    monkeypatch.setenv("AI_GATEWAY_API_KEY", "offline-test-key")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "offline-test-key")
     monkeypatch.setattr(typesafe_sdk, "TypeSafeClient", client_factory)
     with pytest.raises(JevAuditError, match="Choice does not agree"):
         audit_research_record(_valid_record())
+
+    # Exercise the real adapter construction and full valid response offline.
+    body["answers"]["design_status"]["probabilities"] = {"insufficient": 0, "exploratory_ready": 1, "validation_ready": 0}
+    body["model"] = "jev-test-returned-model"
+    monkeypatch.delenv("AI_GATEWAY_API_KEY", raising=False)
+    monkeypatch.setenv("TYPESAFE_BASE_URL", "https://unused.invalid")
+    monkeypatch.setenv("TYPESAFE_DEFAULT_MODEL", "unused-model")
+    def checked_handler(request):
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.typesafe.ai/v1/systemone"
+        assert request.headers["authorization"] == "Bearer offline-test-key"
+        payload = json.loads(request.content)
+        assert payload["model"] == "jev-latest"
+        assert payload["state"] == _valid_record()
+        assert set(payload["questions"]) == set(body["answers"])
+        return httpx2.Response(200, json=body)
+    def checked_factory(**kwargs):
+        assert kwargs["timeout"] == 30.0
+        assert kwargs["retry"].max_retries == 0
+        return real_client(**kwargs, transport=httpx2.MockTransport(checked_handler))
+    monkeypatch.setattr(typesafe_sdk, "TypeSafeClient", checked_factory)
+    result = audit_research_record(_valid_record())
+    assert result["provider"] == "TypeSafe Jev direct API"
+    assert result["requested_model"] == "jev-latest"
+    assert result["returned_model"] == "jev-test-returned-model"
+    assert result["answers"]["overfitting_risk"]["score"] == 1.0

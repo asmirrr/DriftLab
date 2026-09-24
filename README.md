@@ -47,14 +47,18 @@ python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-
 Jev reviews only the completed compact research record. Python exclusively owns prices, returns, metrics, selection, weights, and costs. Jev cannot modify a run or automatically perform its suggested experiment.
 
 ```powershell
-$env:AI_GATEWAY_API_KEY="your_vercel_ai_gateway_key_here"
-python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10 --audit-with-jev
+$env:TYPESAFE_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'TypeSafe API key' -AsSecureString)).Password
+uv run --frozen python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10 --audit-with-jev
 ```
 
-DriftLab uses the official `typesafe-sdk` through Vercel AI Gateway's TypeSafe-compatible endpoint with model `typesafe-ai/jev`. A missing key or failed audit does not invalidate or remove deterministic outputs. Audit an existing record without data download:
+Direct TypeSafe is the current Jev provider. `TYPESAFE_API_KEY` is needed only for `run --audit-with-jev` or the standalone `audit` command; the deterministic backtest requires no Jev credential. You can also put the key in a local, Git-ignored `.env` file. `AI_GATEWAY_API_KEY` is not used.
+
+Verified against the [official Python SDK documentation](https://docs.typesafe.ai/sdk/python/api/clients/sync) and installed `typesafe-sdk` 0.7.0: the adapter constructs `TypeSafeClient(api_key=key, base_url="https://api.typesafe.ai", model="jev-latest", timeout=30.0, retry=RetryPolicy(max_retries=0))` and calls `system_one(state, questions)`, issuing `POST https://api.typesafe.ai/v1/systemone` with Bearer authentication. No dependency upgrade is needed. The base URL and model are explicit, so `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` do not override this adapter. Routing remains confined to `jev_audit.py`.
+
+`jev-latest` is the [current SDK default alias](https://docs.typesafe.ai/concepts/system-one), not an immutable version pin. Audit JSON retains both the requested alias and the returned model identifier; the alias may change over time. Jev is an advisory methodology audit, never part of portfolio calculation. A missing key or failed audit does not invalidate or remove deterministic outputs. Audit an existing record without data download:
 
 ```powershell
-python -m driftlab audit outputs\<run_id>_research_record.json
+uv run --frozen python -m driftlab audit outputs\<run_id>_research_record.json
 ```
 
 ## Output Files

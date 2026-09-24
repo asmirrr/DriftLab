@@ -6,8 +6,9 @@ import os
 from datetime import date
 from typing import Any, Mapping
 
-GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/typesafe"
-MODEL = "typesafe-ai/jev"
+# Keep provider routing explicit and local to this optional adapter.
+API_BASE_URL = "https://api.typesafe.ai"
+MODEL = "jev-latest"
 CONFIDENCE_THRESHOLD = 0.65
 MAX_RECORD_BYTES = 50_000
 POLICY_NOTE = "Jev output is a structured research-workflow aid, not financial advice, a trading instruction, or evidence of future performance."
@@ -164,7 +165,7 @@ def normalize_response(response: Any, run_id: str) -> dict[str, Any]:
     if not isinstance(returned_model, str) or not returned_model:
         raise JevAuditError("Jev response did not identify its model.")
     label = ("low", "medium", "high")[round(score.score)]
-    normalized = {"run_id": run_id, "provider": "TypeSafe Jev via Vercel AI Gateway", "requested_model": MODEL, "returned_model": returned_model, "audit_status": "completed", "confidence_threshold": CONFIDENCE_THRESHOLD, "answers": {"design_status": design, "result_label": result, "overfitting_risk": {"score": float(score.score), "derived_label": label, "confidence": float(score.confidence), "probabilities": probabilities, "legend": legend}, "survivorship_bias_material": {"probability": float(noul)}, "next_experiment": next_experiment}, "policy_note": POLICY_NOTE}
+    normalized = {"run_id": run_id, "provider": "TypeSafe Jev direct API", "requested_model": MODEL, "returned_model": returned_model, "audit_status": "completed", "confidence_threshold": CONFIDENCE_THRESHOLD, "answers": {"design_status": design, "result_label": result, "overfitting_risk": {"score": float(score.score), "derived_label": label, "confidence": float(score.confidence), "probabilities": probabilities, "legend": legend}, "survivorship_bias_material": {"probability": float(noul)}, "next_experiment": next_experiment}, "policy_note": POLICY_NOTE}
     if not _finite_json(normalized):
         raise JevAuditError("Jev response cannot be serialized safely.")
     return normalized
@@ -172,12 +173,12 @@ def normalize_response(response: Any, run_id: str) -> dict[str, Any]:
 
 def audit_research_record(record: Mapping[str, Any]) -> dict[str, Any]:
     state = validate_research_record(record)
-    key = os.getenv("AI_GATEWAY_API_KEY")
+    key = os.getenv("TYPESAFE_API_KEY")
     if not key:
-        raise JevAuditError("Jev audit requested, but AI_GATEWAY_API_KEY is not set. Set it in your environment or a local .env file, then rerun with --audit-with-jev.")
+        raise JevAuditError("Jev audit requested, but TYPESAFE_API_KEY is not set. Set it in your environment or a local .env file, then rerun the audit.")
     try:
         from typesafe_sdk import RetryPolicy, TypeSafeClient
-        with TypeSafeClient(api_key=key, base_url=GATEWAY_BASE_URL, model=MODEL, timeout=30.0, retry=RetryPolicy(max_retries=0)) as client:
+        with TypeSafeClient(api_key=key, base_url=API_BASE_URL, model=MODEL, timeout=30.0, retry=RetryPolicy(max_retries=0)) as client:
             response = client.system_one(state, build_questions())
         return normalize_response(response, str(state["run_id"]))
     except JevAuditError:
