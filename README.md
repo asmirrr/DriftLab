@@ -18,7 +18,9 @@ Trailing momentum is price today divided by price `lookback` trading days ago, m
 
 `--start` is inclusive and `--end` is exclusive. DriftLab records the data range, allocation-decision date, and performance-return dates separately. Annualized return uses only market-return days after allocation, while the allocation-close cost remains in cumulative return, volatility, Sharpe ratio, and drawdown. Maximum drawdown starts from initial capital of 1.0.
 
-DriftLab downloads yfinance with `auto_adjust=False` and requires `Adj Close`; it never substitutes raw `Close`. Every adjusted close must be finite and positive. It rejects missing expected regular NYSE sessions and does not fill observations. The regular-session calendar does not include extraordinary exchange closures.
+DriftLab downloads yfinance with `auto_adjust=False` and requires `Adj Close`; it never substitutes raw `Close`. Every adjusted close must be finite and positive. It rejects both missing expected NYSE sessions and unexpected weekend, holiday, or non-session rows, and does not fill observations. The built-in calendar includes regular closures plus documented exceptional full-day closures through January 9, 2025; future exceptional closures require a calendar update.
+
+The final valid universe is fixed before signals are calculated. DriftLab uses the common contiguous window for those tickers, so a ticker that appears only later can move the analysis start. If fewer than the requested holdings have a usable signal at a rebalance, it holds every eligible ticker at equal weight.
 
 Strategy weights are constant targets between scheduled rebalances. This is an approximation: DriftLab does not trade to maintain those targets as prices drift, so it omits any maintenance turnover and costs.
 
@@ -57,11 +59,11 @@ python -m driftlab audit outputs\<run_id>_research_record.json
 
 ## Output Files
 
-Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report **before** Jev is called. A successful audit also writes Jev audit JSON. Jev failures, malformed responses, serialization failures, and report-update failures cannot remove or rewrite those baseline quantitative artifacts.
+Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report **before** Jev is called. A successful audit also writes Jev audit JSON. Failed Jev attempts are recorded in the report when report writing remains available. Jev failures, malformed responses, serialization failures, and report-update failures cannot remove or rewrite those baseline quantitative artifacts.
 
 ## Understanding the Metrics
 
-Annualized return converts the observed compounded result to a 252-trading-day rate. Annualized volatility measures daily-return variation. Sharpe ratio is return per unit of volatility assuming zero risk-free rate. Maximum drawdown is the deepest peak-to-trough equity decline.
+Annualized return converts the observed compounded result to a 252-trading-day rate. The allocation-close entry cost affects cumulative return and drawdown; volatility and Sharpe use only subsequent actual market-return observations. Sharpe ratio is return per unit of volatility assuming zero risk-free rate. Maximum drawdown is the deepest peak-to-trough equity decline.
 
 ## Why Jev Is Used
 
@@ -70,6 +72,8 @@ Jev classifies documented research-process limitations and suggests one next exp
 ## Confidence Policy
 
 Choice answers below 0.65 display as “Ambiguous — no automated conclusion assigned.” Score results retain their numeric 0–2 position, probabilities, and confidence; scores below 0.65 require caution. Noul is displayed as a probability without a forced binary conclusion.
+
+`parameter_sets_tested` in the research record means configurations evaluated in this DriftLab invocation only. It does not establish the complete historical search performed by a researcher.
 
 ## Research Limitations
 

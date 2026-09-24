@@ -37,3 +37,37 @@ def test_configured_end_makes_terminal_month_and_extension_invariant(prices: pd.
     altered = run_backtest(config, extended)
     pd.testing.assert_frame_equal(baseline.daily, altered.daily, check_freq=False)
     pd.testing.assert_frame_equal(baseline.portfolio.rebalances, altered.portfolio.rebalances)
+
+
+def test_december_2021_later_session_removal_rejects_instead_of_moving_rebalance() -> None:
+    from driftlab.data import expected_sessions
+    index = expected_sessions(pd.Timestamp("2021-10-01"), pd.Timestamp("2022-01-04"))
+    prices = pd.DataFrame({"AAA": 100.0, "BBB": 90.0}, index=index)
+    prices.loc["2021-12-29":, "BBB"] = 150.0
+    config = RunConfig.create(["AAA", "BBB"], date(2021, 10, 1), date(2022, 1, 4), lookback=5, holdings=1)
+    complete = run_backtest(config, prices)
+    assert pd.Timestamp("2021-12-31") in set(complete.portfolio.rebalances["rebalance_date"])
+    with pytest.raises(DataError, match="Missing expected NYSE"):
+        run_backtest(config, prices.drop(pd.Timestamp("2021-12-31")))
+
+
+def test_future_window_removal_rejects_instead_of_rewriting_history(prices: pd.DataFrame) -> None:
+    config = RunConfig.create(["AAA", "BBB", "CCC"], date(2024, 1, 2), date(2024, 5, 20), lookback=20, holdings=2)
+    with pytest.raises(DataError, match="Missing expected NYSE"):
+        run_backtest(config, prices.drop(prices.loc["2024-03-28":"2024-04-03"].index))
+
+
+def test_extreme_finite_cost_rejects_nonpositive_equity(prices: pd.DataFrame) -> None:
+    config = RunConfig.create(["AAA", "BBB", "CCC"], date(2024, 1, 2), date(2024, 5, 20), lookback=20, holdings=2, cost_bps=10_000)
+    with pytest.raises(DataError, match="nonpositive portfolio equity"):
+        run_backtest(config, prices)
+
+
+def test_unavailable_ticker_is_excluded_and_reduced_holdings_are_equal_weighted(prices: pd.DataFrame) -> None:
+    supplied = prices.copy()
+    supplied["CCC"] = float("nan")
+    config = RunConfig.create(["AAA", "BBB", "CCC"], date(2024, 1, 2), date(2024, 5, 20), lookback=20, holdings=3)
+    result = run_backtest(config, supplied)
+    assert result.price_data.excluded_tickers == ("CCC",)
+    weights = result.portfolio.target_weights.loc[result.allocation_date]
+    assert weights.to_dict() == {"AAA": .5, "BBB": .5}

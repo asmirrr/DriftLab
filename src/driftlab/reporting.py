@@ -83,7 +83,9 @@ def render_report(result: BacktestResult, paths: dict[str, Path], audit: dict[st
                          f"| Survivorship-bias materiality | {a['survivorship_bias_material']['probability']:.1%} probability | N/A |\n"
                          f"| Recommended next experiment | {a['next_experiment']['display_value']} | {a['next_experiment']['confidence']:.2f} |\n\n"
                          f"**Policy note:** {audit['policy_note']}")
-    command = f"python -m driftlab run --tickers {' '.join(config.tickers)} --start {config.start} --end {config.end} --lookback {config.lookback} --holdings {config.holdings} --rebalance monthly --cost-bps {config.cost_bps}"
+    command = f"python -m driftlab run --tickers {' '.join(config.tickers)} --start {config.start} --end {config.end} --lookback {config.lookback} --holdings {config.holdings} --rebalance monthly --cost-bps {config.cost_bps} --output-dir {paths['report'].parent}"
+    if audit is not None:
+        command += " --audit-with-jev"
     return f"""# DriftLab Momentum Research Report
 
 ## Research Question
@@ -96,7 +98,7 @@ Requested data range: [{config.start}, {config.end}) (end exclusive). Available 
 
 ## Universe and Data
 
-Requested: {', '.join(config.tickers)}. Valid: {', '.join(result.price_data.valid_tickers)}. Excluded: {', '.join(result.price_data.excluded_tickers) or 'None'}. Data source: yfinance `Adj Close` with `auto_adjust=False`; raw `Close` is rejected. DriftLab rejects missing expected regular NYSE sessions and does not fill prices.
+Requested: {', '.join(config.tickers)}. Valid: {', '.join(result.price_data.valid_tickers)}. Excluded: {', '.join(result.price_data.excluded_tickers) or 'None'}. Data source: yfinance `Adj Close` with `auto_adjust=False`; raw `Close` is rejected. DriftLab uses the final common valid universe, so a ticker that becomes available only later can move the common analysis window. If fewer valid tickers have a signal at a decision, all eligible tickers are selected and equal-weighted. DriftLab rejects missing expected regular NYSE sessions and unexpected non-session observations; it does not fill prices.
 
 ## Methodology
 
@@ -112,7 +114,7 @@ The benchmark is **true equal-weight buy-and-hold**: equal capital is invested o
 |---|---:|---:|
 {rows}
 
-Annualized return uses only the {s.investable_trading_days} market-return observations after allocation. The allocation-close cost is included in cumulative return, volatility, Sharpe ratio, and drawdown.
+Annualized return uses only the {s.investable_trading_days} market-return observations after allocation. The allocation-close cost is included in cumulative return and drawdown; volatility and Sharpe use only actual subsequent market-return observations.
 
 ## Turnover and Costs
 

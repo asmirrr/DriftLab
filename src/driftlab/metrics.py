@@ -35,15 +35,24 @@ def maximum_drawdown(equity: pd.Series) -> float:
 
 
 def calculate_metrics(returns: pd.Series, turnover: pd.Series, rebalance_events: int,
-                      valid_tickers: int, annualization_days: int | None = None) -> PerformanceMetrics:
+                      valid_tickers: int, annualization_days: int | None = None,
+                      risk_returns: pd.Series | None = None) -> PerformanceMetrics:
+    """Calculate cumulative results separately from actual market-return risk.
+
+    ``returns`` includes the allocation-close entry cost when present. That
+    cost affects cumulative return and drawdown, but it is not invented into a
+    zero-percent daily market observation for volatility or Sharpe.
+    """
     count = len(returns)
     equity = equity_curve(returns)
     cumulative = float(equity.iloc[-1] - 1.0) if count else float("nan")
     periods = count if annualization_days is None else annualization_days
     annualized = float((1.0 + cumulative) ** (252 / periods) - 1.0) if periods and cumulative > -1 else float("nan")
-    volatility = float(returns.std(ddof=1) * np.sqrt(252)) if count > 1 else float("nan")
-    daily_std = returns.std(ddof=1)
-    sharpe = float(returns.mean() / daily_std * np.sqrt(252)) if count > 1 and daily_std != 0 else float("nan")
+    observed_returns = returns if risk_returns is None else risk_returns
+    observed_count = len(observed_returns)
+    volatility = float(observed_returns.std(ddof=1) * np.sqrt(252)) if observed_count > 1 else float("nan")
+    daily_std = observed_returns.std(ddof=1)
+    sharpe = float(observed_returns.mean() / daily_std * np.sqrt(252)) if observed_count > 1 and daily_std != 0 else float("nan")
     return PerformanceMetrics(cumulative, annualized, volatility, sharpe, maximum_drawdown(equity),
                               float(turnover.mean()) if count else float("nan"), float(turnover.sum()),
                               rebalance_events, periods, valid_tickers)

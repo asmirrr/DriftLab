@@ -19,6 +19,9 @@ def test_adjusted_close_is_required_and_invalid_prices_are_rejected() -> None:
         clean_prices(bad, ("AAA", "BBB"), date(2024, 1, 2), date(2024, 1, 4))
     with pytest.raises(ConfigurationError, match="finite nonnegative"):
         RunConfig.create(["AAA", "BBB"], date(2024, 1, 1), date(2024, 2, 1), 20, 1, cost_bps=math.inf)
+    malformed = pd.DataFrame([[10.0, 11.0]], columns=["Adj Close", "Adj Close"], index=pd.DatetimeIndex(["2024-01-02"]))
+    with pytest.raises(DataError, match="invalid single-level shape"):
+        _extract_adjusted_close(malformed, ("AAA", "BBB"))
 
 
 def test_regular_holidays_are_not_missing_but_expected_sessions_are() -> None:
@@ -28,6 +31,18 @@ def test_regular_holidays_are_not_missing_but_expected_sessions_are() -> None:
     broken = frame.drop(pd.Timestamp("2024-01-16"))
     with pytest.raises(DataError, match="2024-01-16"):
         clean_prices(broken, ("AAA", "BBB"), date(2024, 1, 12), date(2024, 1, 18))
+
+
+def test_session_calendar_handles_new_year_extraordinary_closure_and_unexpected_rows() -> None:
+    december = expected_sessions(pd.Timestamp("2021-12-01"), pd.Timestamp("2022-01-04"))
+    assert pd.Timestamp("2021-12-31") in december
+    january = expected_sessions(pd.Timestamp("2025-01-01"), pd.Timestamp("2025-01-11"))
+    assert pd.Timestamp("2025-01-09") not in january
+    assert pd.Timestamp("2024-11-29") in expected_sessions(pd.Timestamp("2024-11-28"), pd.Timestamp("2024-12-01"))
+    frame = pd.DataFrame({"AAA": 10.0, "BBB": 11.0}, index=expected_sessions(pd.Timestamp("2024-03-28"), pd.Timestamp("2024-04-02")))
+    frame.loc[pd.Timestamp("2024-03-30")] = [10.0, 11.0]
+    with pytest.raises(DataError, match="Unexpected non-NYSE"):
+        clean_prices(frame, ("AAA", "BBB"), date(2024, 3, 28), date(2024, 4, 2))
 
 
 def test_tie_at_selection_cutoff_is_alphabetical() -> None:

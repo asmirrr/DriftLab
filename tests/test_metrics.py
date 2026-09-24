@@ -15,3 +15,11 @@ def test_metrics_and_equity_curve() -> None:
 def test_zero_volatility_sharpe_is_nan() -> None:
     metric = calculate_metrics(pd.Series([0.0, 0.0]), pd.Series([0.0, 0.0]), 0, 2)
     assert math.isnan(metric.sharpe_ratio)
+
+
+def test_risk_metrics_exclude_synthetic_initialization_return() -> None:
+    stored = pd.Series([0.0, 0.125, 0.125])
+    metric = calculate_metrics(stored, pd.Series([0.0, 0.0, 0.0]), 0, 2,
+                               annualization_days=2, risk_returns=stored.iloc[1:])
+    assert metric.annualized_volatility == 0.0
+    assert math.isnan(metric.sharpe_ratio)

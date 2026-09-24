@@ -43,9 +43,12 @@ def run(
         config = RunConfig.create([tickers, *context.args], _parse_date(start, "--start"), _parse_date(end, "--end"), lookback, holdings, rebalance, cost_bps)
         data = fetch_prices(config.tickers, config.start, config.end)
         result = run_backtest(config, data.prices)
-    except (ConfigurationError, DataError) as error:
+    except (ConfigurationError, DataError, OSError, ValueError) as error:
         _fail(str(error))
-    paths = write_baseline_artifacts(result, output_dir)
+    try:
+        paths = write_baseline_artifacts(result, output_dir)
+    except (OSError, ValueError) as error:
+        _fail(f"Could not save deterministic artifacts: {error}")
     audit = None
     audit_error = None
     if audit_with_jev:
@@ -60,10 +63,15 @@ def run(
         except Exception as error:
             audit_error = f"Jev artifact update failed: {error}"
             typer.secho(f"Warning: {audit_error}", fg=typer.colors.YELLOW, err=True)
+            try:
+                paths = update_jev_artifacts(result, paths, None, audit_error)
+            except Exception as report_error:
+                typer.secho(f"Warning: Could not record Jev audit failure: {report_error}", fg=typer.colors.YELLOW, err=True)
     typer.echo("DriftLab — Momentum Research Run\n")
     typer.echo("Universe requested: " + ", ".join(config.tickers))
     typer.echo("Universe used: " + ", ".join(result.price_data.valid_tickers))
-    typer.echo(f"Period used: {result.daily.index[0].date()} to {result.daily.index[-1].date()}")
+    typer.echo(f"Data used: {result.price_data.prices.index[0].date()} to {result.price_data.prices.index[-1].date()}")
+    typer.echo(f"Allocation date: {result.allocation_date.date()}; market-return dates: {result.performance_start.date()} to {result.daily.index[-1].date()}")
     typer.echo(f"Signal: {config.lookback}-trading-day trailing momentum")
     typer.echo(f"Portfolio: Top {config.holdings} assets, equal target weights, monthly rebalance")
     typer.echo(f"Estimated cost: {config.cost_bps:g} bps per unit of turnover\n")
@@ -80,8 +88,11 @@ def audit(research_record: Path) -> None:
     try:
         record = json.loads(research_record.read_text(encoding="utf-8"))
         result = audit_research_record(record)
-    except (OSError, json.JSONDecodeError, JevAuditError) as error:
+    except (OSError, json.JSONDecodeError, JevAuditError, ValueError) as error:
         _fail(str(error))
     target = research_record.with_name(research_record.stem.replace("_research_record", "") + "_jev_audit.json")
-    target.write_text(json.dumps(result, indent=2, allow_nan=False), encoding="utf-8")
+    try:
+        target.write_text(json.dumps(result, indent=2, allow_nan=False), encoding="utf-8")
+    except (OSError, ValueError) as error:
+        _fail(f"Could not save Jev audit: {error}")
     typer.echo(f"Jev audit saved: {target}")

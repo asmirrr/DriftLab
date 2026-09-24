@@ -19,9 +19,10 @@ class _NYSEHolidayCalendar(AbstractHolidayCalendar):
     """Regular NYSE closures needed to distinguish normal holidays from gaps."""
 
     rules = [
-        # New Year's Day, Juneteenth, Independence Day, and Christmas.
-        # The calendar intentionally does not infer exceptional ad-hoc closures.
-        Holiday("NewYearsDay", month=1, day=1, observance=nearest_workday),
+        # NYSE does not observe New Year's Day on the preceding Friday when
+        # January 1 falls on Saturday (for example, 2021-12-31).
+        Holiday("NewYearsDay", month=1, day=1,
+                observance=lambda day: day + pd.Timedelta(days=1) if day.weekday() == 6 else day),
         USMartinLutherKingJr, USPresidentsDay, GoodFriday, USMemorialDay,
         Holiday("Juneteenth", month=6, day=19, observance=nearest_workday, start_date="2022-01-01"),
         Holiday("IndependenceDay", month=7, day=4, observance=nearest_workday),
@@ -32,12 +33,22 @@ class _NYSEHolidayCalendar(AbstractHolidayCalendar):
 
 _NYSE_BUSINESS_DAY = CustomBusinessDay(calendar=_NYSEHolidayCalendar())
 
+# Full-day exceptional closures since the modern daily-data period. These are
+# explicit rather than inferred so a provider omission is never silently
+# treated as an exchange closure.
+_EXTRAORDINARY_NYSE_CLOSURES = pd.DatetimeIndex([
+    "2001-09-11", "2001-09-12", "2001-09-13", "2001-09-14",
+    "2004-06-11", "2007-01-02", "2012-10-29", "2012-10-30",
+    "2018-12-05", "2025-01-09",
+])
+
 
 def expected_sessions(start: pd.Timestamp, end_exclusive: pd.Timestamp) -> pd.DatetimeIndex:
     """Regular NYSE weekday sessions in [start, end), excluding known holidays."""
     if start >= end_exclusive:
         return pd.DatetimeIndex([])
-    return pd.date_range(start.normalize(), (end_exclusive - pd.Timedelta(days=1)).normalize(), freq=_NYSE_BUSINESS_DAY)
+    sessions = pd.date_range(start.normalize(), (end_exclusive - pd.Timedelta(days=1)).normalize(), freq=_NYSE_BUSINESS_DAY)
+    return sessions.difference(_EXTRAORDINARY_NYSE_CLOSURES)
 
 
 @dataclass(frozen=True)
@@ -60,6 +71,8 @@ def _extract_adjusted_close(raw: pd.DataFrame, requested: tuple[str, ...]) -> pd
         if "Adj Close" not in raw.columns:
             raise DataError("Downloaded data did not contain an Adj Close series; raw Close is not accepted.")
         result = raw[["Adj Close"]].copy()
+        if len(requested) != 1:
+            raise DataError("Downloaded adjusted-close data has an invalid single-level shape for multiple tickers.")
         result.columns = [requested[0]]
     return result.reindex(columns=requested)
 
@@ -101,6 +114,11 @@ def clean_prices(prices: pd.DataFrame, requested: tuple[str, ...], start: date |
         dates = ", ".join(day.date().isoformat() for day in missing_sessions[:3])
         suffix = "..." if len(missing_sessions) > 3 else ""
         raise DataError(f"Missing expected NYSE trading session(s): {dates}{suffix}. No prices were filled.")
+    unexpected_sessions = usable.index.difference(expected)
+    if len(unexpected_sessions):
+        dates = ", ".join(day.date().isoformat() for day in unexpected_sessions[:3])
+        suffix = "..." if len(unexpected_sessions) > 3 else ""
+        raise DataError(f"Unexpected non-NYSE session observation(s): {dates}{suffix}.")
     notes = ["Prices are finite positive adjusted closes with no missing regular NYSE sessions in the common usable range."]
     if excluded:
         notes.append("Excluded unavailable tickers: " + ", ".join(excluded) + ".")

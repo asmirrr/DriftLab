@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from datetime import date
+import importlib.metadata
+import platform
 from uuid import uuid4
 import pandas as pd
 
@@ -10,6 +12,7 @@ from .data import DataError, PriceData, clean_prices
 from .metrics import PerformanceMetrics, calculate_metrics, equity_curve
 from .portfolio import PortfolioResult, build_portfolio, true_buy_and_hold_returns
 from .signals import completed_month_end_dates, trailing_momentum
+from . import __version__
 
 RESEARCH_QUESTION = ("Among a user-supplied basket of liquid U.S. stocks, does a monthly-rebalanced, "
                      "equal-weighted portfolio that holds the top N stocks by trailing momentum outperform "
@@ -50,6 +53,10 @@ class BacktestResult:
                                          "Strategy uses constant target weights between rebalances; maintenance trading and its costs are not modeled.",
                                          "Strategy target weights selected at month-end affect returns from the next trading day.",
                                          "The allocation-close cost is included in cumulative performance; annualization uses subsequent market-return days."]},
+                "metadata": {"python_version": platform.python_version(),
+                             "package_versions": {name: importlib.metadata.version(name) for name in ("numpy", "pandas", "typesafe-sdk", "yfinance")},
+                             "code_version": __version__,
+                             "parameter_sets_tested_scope": "configurations evaluated in this invocation only"},
                 "strategy_metrics": self.strategy_metrics.json_dict(), "benchmark_metrics": self.benchmark_metrics.json_dict(),
                 "turnover": {"average_daily_turnover": self.strategy_metrics.average_daily_turnover,
                              "total_turnover": self.strategy_metrics.total_turnover,
@@ -80,10 +87,14 @@ def run_backtest(config: RunConfig, source_prices: pd.DataFrame) -> BacktestResu
                           "benchmark_return": benchmark, "turnover": turnover})
     daily["strategy_equity"] = equity_curve(daily["strategy_net_return"])
     daily["benchmark_equity"] = equity_curve(daily["benchmark_return"])
+    if (daily[["strategy_equity", "benchmark_equity"]] <= 0).any().any():
+        raise DataError("Modeled transaction costs produce nonpositive portfolio equity; reduce --cost-bps.")
     daily.index.name = "date"
     event_count = int(portfolio.rebalances.loc[portfolio.rebalances["rebalance_date"] >= allocation_date, "rebalance_date"].nunique())
     market_days = len(daily) - 1
+    actual_strategy_returns = strategy_net.iloc[1:]
+    actual_benchmark_returns = benchmark.iloc[1:]
     return BacktestResult("run_" + pd.Timestamp.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6], config, data,
-                          portfolio, benchmark, calculate_metrics(strategy_net, turnover, event_count, len(data.valid_tickers), market_days),
-                          calculate_metrics(benchmark, pd.Series(0.0, index=benchmark.index), 0, len(data.valid_tickers), market_days),
+                          portfolio, benchmark, calculate_metrics(strategy_net, turnover, event_count, len(data.valid_tickers), market_days, actual_strategy_returns),
+                          calculate_metrics(benchmark, pd.Series(0.0, index=benchmark.index), 0, len(data.valid_tickers), market_days, actual_benchmark_returns),
                           daily, allocation_date, performance_start)
