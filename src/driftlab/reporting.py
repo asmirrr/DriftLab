@@ -92,7 +92,7 @@ def render_report(result: BacktestResult, paths: dict[str, Path], audit: dict[st
 
 ## Historical Setup
 
-Requested data range: [{config.start}, {config.end}) (end exclusive). Available data range: {result.data_start.date()} to {result.data_end.date()}. Allocation decision date: {result.allocation_date.date()}; performance-return dates: {result.performance_start.date()} to {result.data_end.date()}. Signal: {config.lookback}-trading-day trailing momentum; Top {config.holdings}; monthly rebalance; {config.cost_bps:g} bps per turnover unit.
+Requested data range: [{config.start}, {config.end}) (end exclusive). Available data range: {result.price_data.prices.index[0].date()} to {result.price_data.prices.index[-1].date()}. Allocation decision date: {result.allocation_date.date()}; performance-return dates: {result.performance_start.date()} to {result.price_data.prices.index[-1].date()}. Signal: {config.lookback}-trading-day trailing momentum; Top {config.holdings}; monthly rebalance; {config.cost_bps:g} bps per turnover unit.
 
 ## Universe and Data
 

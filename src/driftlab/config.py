@@ -22,7 +22,7 @@ class RunConfig:
     @classmethod
     def create(cls, tickers: list[str], start: date, end: date, lookback: int = 126,
                holdings: int = 3, rebalance: str = "monthly", cost_bps: float = 10.0) -> "RunConfig":
-        normalized = tuple(dict.fromkeys(item.strip().upper() for item in tickers if item.strip()))
+        normalized = tuple(dict.fromkeys(token.upper() for item in tickers for token in item.split() if token))
         if len(normalized) < 2:
             raise ConfigurationError("Provide at least two distinct ticker symbols.")
         if start >= end:

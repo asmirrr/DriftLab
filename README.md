@@ -14,9 +14,15 @@ Historical exploratory results do not predict future performance. DriftLab never
 
 ## Methodology
 
-Trailing momentum is price today divided by price `lookback` trading days ago, minus one. On the last actual trading day of each month, DriftLab ranks available signals and uses alphabetical ticker order to break ties. The selected weights affect returns on the following trading day, preventing look-ahead. Transaction cost is turnover multiplied by basis points divided by 10,000; the initial cash-to-portfolio allocation is charged.
+Trailing momentum is price today divided by price `lookback` trading days ago, minus one. On each completed calendar month's last available trading session, DriftLab ranks available signals and uses alphabetical ticker order to break ties. A decision made at that close affects returns only from the following session. A terminal decision without a following in-range session is not executed. Transaction cost is turnover multiplied by basis points divided by 10,000; the initial cash-to-portfolio allocation is charged.
 
-The benchmark is **true equal-weight buy-and-hold**: equal capital is allocated once at the initial investable date; positions then drift and are never rebalanced. This is deliberately different from applying constant equal weights each day, which would imply rebalancing.
+`--start` is inclusive and `--end` is exclusive. DriftLab records the data range, allocation-decision date, and performance-return dates separately. Annualized return uses only market-return days after allocation, while the allocation-close cost remains in cumulative return, volatility, Sharpe ratio, and drawdown. Maximum drawdown starts from initial capital of 1.0.
+
+DriftLab downloads yfinance with `auto_adjust=False` and requires `Adj Close`; it never substitutes raw `Close`. Every adjusted close must be finite and positive. It rejects missing expected regular NYSE sessions and does not fill observations. The regular-session calendar does not include extraordinary exchange closures.
+
+Strategy weights are constant targets between scheduled rebalances. This is an approximation: DriftLab does not trade to maintain those targets as prices drift, so it omits any maintenance turnover and costs.
+
+The benchmark is **true equal-weight buy-and-hold**: equal capital is allocated once at the allocation date; positions then drift and are never rebalanced. This is deliberately different from applying constant equal weights each day, which would imply rebalancing. The benchmark has no modeled entry cost, so the comparison is net strategy performance against gross buy-and-hold performance.
 
 ## Installation
 
@@ -51,7 +57,7 @@ python -m driftlab audit outputs\<run_id>_research_record.json
 
 ## Output Files
 
-Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report. A successful audit also writes Jev audit JSON.
+Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report **before** Jev is called. A successful audit also writes Jev audit JSON. Jev failures, malformed responses, serialization failures, and report-update failures cannot remove or rewrite those baseline quantitative artifacts.
 
 ## Understanding the Metrics
 

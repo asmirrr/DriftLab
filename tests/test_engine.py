@@ -27,3 +27,13 @@ def test_engine_rejects_insufficient_data() -> None:
     prices = pd.DataFrame({"AAA": [1, 2], "BBB": [1, 2]}, index=pd.DatetimeIndex(["2024-01-02", "2024-01-03"]))
     with pytest.raises(DataError, match="Insufficient"):
         run_backtest(config, prices)
+
+
+def test_configured_end_makes_terminal_month_and_extension_invariant(prices: pd.DataFrame) -> None:
+    config = RunConfig.create(["AAA", "BBB", "CCC"], date(2024, 1, 2), date(2024, 5, 20), lookback=20, holdings=2)
+    baseline = run_backtest(config, prices)
+    extension_dates = pd.bdate_range("2024-05-20", periods=10)
+    extended = pd.concat([prices, pd.DataFrame({column: prices.iloc[-1][column] * (1 + .01 * pd.RangeIndex(len(extension_dates))) for column in prices.columns}, index=extension_dates)])
+    altered = run_backtest(config, extended)
+    pd.testing.assert_frame_equal(baseline.daily, altered.daily, check_freq=False)
+    pd.testing.assert_frame_equal(baseline.portfolio.rebalances, altered.portfolio.rebalances)

@@ -73,7 +73,12 @@ def clean_prices(prices: pd.DataFrame, requested: tuple[str, ...], start: date |
         frame = frame.loc[frame.index >= pd.Timestamp(start)]
     if end is not None:
         frame = frame.loc[frame.index < pd.Timestamp(end)]
-    frame = frame.apply(pd.to_numeric, errors="coerce").where(lambda item: np.isfinite(item) & (item > 0))
+    frame = frame.apply(pd.to_numeric, errors="coerce")
+    invalid = frame.notna() & ~(np.isfinite(frame) & (frame > 0))
+    if invalid.any().any():
+        ticker = invalid.any(axis=0)[invalid.any(axis=0)].index[0]
+        day = invalid[ticker][invalid[ticker]].index[0].date().isoformat()
+        raise DataError(f"Adjusted close must be finite and positive; invalid value for {ticker} on {day}.")
     valid = tuple(column for column in requested if frame[column].notna().any())
     excluded = tuple(column for column in requested if column not in valid)
     if len(valid) < 2:
