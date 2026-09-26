@@ -12,11 +12,29 @@ Among a user-supplied basket of liquid U.S. stocks, does a monthly-rebalanced eq
 
 Historical exploratory results do not predict future performance. DriftLab never generates trading instructions or recommendations.
 
+## Current Research Status
+
+The deterministic engine is audit-closed for exploratory research; this is not validation of a general investment edge. The saved six-ticker experiment (AAPL, MSFT, NVDA, AMZN, GOOGL, META) is an **exploratory historical result requiring out-of-sample validation**, not evidence that the strategy generally outperforms its benchmark.
+
+The [research record](outputs/run_20260924_163918_e71aba_research_record.json) records `parameter_sets_tested = 1`, `out_of_sample_test = false`, and `historical_constituents_used = false`. The parameter count covers this invocation only, not the researcher's entire search history.
+
+The [completed direct TypeSafe audit](outputs/run_20260924_163918_e71aba_jev_audit.json) returned `jev-1.13.0`:
+
+| Assessment | Saved result |
+|---|---|
+| Design status | `exploratory_ready`, confidence 0.99 |
+| Result label | Raw `requires_validation`; confidence 0.41, so no automated conclusion assigned |
+| Overfitting risk | Numeric Score 0.97; derived label medium; medium-level probability 0.95, confidence 0.92 |
+| Survivorship bias materiality | Probability 0.75 |
+| Suggested next experiment | `out_of_sample_split`, probability 0.83, confidence 0.78 |
+
+These are advisory model assessments of the supplied record, not independent validation, financial advice, or proof of future performance. Probabilities and confidence are distinct fields.
+
 ## Methodology
 
 Trailing momentum is price today divided by price `lookback` trading days ago, minus one. On each completed calendar month's last available trading session, DriftLab ranks available signals and uses alphabetical ticker order to break ties. A decision made at that close affects returns only from the following session. A terminal decision without a following in-range session is not executed. Transaction cost is turnover multiplied by basis points divided by 10,000; the initial cash-to-portfolio allocation is charged.
 
-`--start` is inclusive and `--end` is exclusive. DriftLab records the data range, allocation-decision date, and performance-return dates separately. Annualized return uses only market-return days after allocation, while the allocation-close cost remains in cumulative return, volatility, Sharpe ratio, and drawdown. Maximum drawdown starts from initial capital of 1.0.
+`--start` is inclusive and `--end` is exclusive. DriftLab records data dates, allocation date, and performance-return dates separately. Annualized return includes entry costs in compounded performance but uses only subsequent market-return days as its period count. The allocation-close cost affects cumulative return and drawdown; that initialization row is excluded from volatility and Sharpe. Maximum drawdown starts from initial capital of 1.0.
 
 DriftLab downloads yfinance with `auto_adjust=False` and requires `Adj Close`; it never substitutes raw `Close`. Every adjusted close must be finite and positive. It rejects both missing expected NYSE sessions and unexpected weekend, holiday, or non-session rows, and does not fill observations. The built-in calendar includes regular closures plus documented exceptional full-day closures through January 9, 2025; future exceptional closures require a calendar update.
 
@@ -28,18 +46,16 @@ The benchmark is **true equal-weight buy-and-hold**: equal capital is allocated 
 
 ## Installation
 
-Python 3.11 or newer is required. On PowerShell:
+Python 3.11 or newer and `uv` are required for the commands below. From the repository directory in PowerShell, install the locked environment and test dependencies:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+uv sync --frozen --extra dev
 ```
 
 ## Running a Backtest
 
 ```powershell
-python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10
+uv run --frozen python -m driftlab run --tickers AAPL MSFT NVDA AMZN GOOGL META --start 2020-01-01 --end 2026-01-01 --lookback 126 --holdings 3 --rebalance monthly --cost-bps 10
 ```
 
 ## Running a Jev Audit
@@ -63,7 +79,11 @@ uv run --frozen python -m driftlab audit outputs\<run_id>_research_record.json
 
 ## Output Files
 
-Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report **before** Jev is called. A successful audit also writes Jev audit JSON. Failed Jev attempts are recorded in the report when report writing remains available. Jev failures, malformed responses, serialization failures, and report-update failures cannot remove or rewrite those baseline quantitative artifacts.
+Each run writes daily returns/equity/turnover CSV, a complete rebalance ledger CSV, compact factual research-record JSON, and a Markdown report **before** Jev is called. With `run --audit-with-jev`, successful audit JSON or a failure note is added and the report is updated when writing remains available. Quantitative CSVs and research-record JSON are not rewritten by the audit.
+
+The standalone `audit` command writes only `<run_id>_jev_audit.json`; it does not refresh the original Markdown report. The saved report for the experiment above therefore still describes its earlier Vercel failure; the separate audit JSON records the later direct TypeSafe success. Historical artifacts are preserved.
+
+Score/probability inconsistencies remain rejected at the existing `1e-6` absolute tolerance. The terminal rejection includes a narrow diagnostic with raw numeric tokens, parsed values, weighted expectation, difference, model, and available request ID; no credentials, headers, or research record are included. An earlier inconsistent live response is covered by an offline regression test.
 
 ## Understanding the Metrics
 
@@ -75,30 +95,34 @@ Jev classifies documented research-process limitations and suggests one next exp
 
 ## Confidence Policy
 
-Choice answers below 0.65 display as “Ambiguous — no automated conclusion assigned.” Score results retain their numeric 0–2 position, probabilities, and confidence; scores below 0.65 require caution. Noul is displayed as a probability without a forced binary conclusion.
+Choice answers with confidence below 0.65 display as “Ambiguous — no automated conclusion assigned.” Score results retain their numeric 0–2 position, probabilities, and confidence; Score confidence below 0.65 requires caution. Noul is displayed as a probability without a forced binary conclusion.
 
 `parameter_sets_tested` in the research record means configurations evaluated in this DriftLab invocation only. It does not establish the complete historical search performed by a researcher.
 
 ## Research Limitations
 
-Historical performance does not predict future performance. Prototype yfinance data may have quality, coverage, adjustment, and availability limitations. A current hand-selected ticker list can create survivorship and selection bias. A small universe is not representative of the full market. Simplified costs omit real execution frictions. Testing many variants can overfit historical data. A separate out-of-sample test is necessary before stronger interpretation. The tool provides no investment advice. Jev is a methodology aid, not a market forecast or investment recommendation.
+- The small, hand-selected current ticker universe creates selection and survivorship bias; historical constituents were not used.
+- No out-of-sample validation has been performed for the saved experiment. Testing further variants on the same history can compound overfitting.
+- Fixed basis-point costs simplify execution frictions. Constant target weights omit maintenance trading and its costs; benchmark entry is cost-free.
+- yfinance coverage, adjustments, availability, and revisions limit data quality and reproducibility; repeating a download need not reproduce the same inputs.
+- The calendar models regular holidays and an explicit list of extraordinary closures ending January 9, 2025. It is not an automatically updated exchange calendar; unlisted closures require review and a calendar update, not price filling.
+
+Documentation caveat: the report template and existing reports still say extraordinary closures are unmodeled. That wording is stale; the explicit list in `data.py` is the implemented behavior. No production code or historical report was changed in this documentation pass.
 
 ## Development and Tests
 
 ```powershell
-pytest -q
-python -m driftlab --help
+uv run --frozen pytest -q
+uv run --frozen python -m driftlab --help
 ```
 
-## Next Experiments
+The current suite has 45 offline tests; no market downloads or Jev credentials are needed. SDK tests use mocked responses, including the observed inconsistent Score 0.97 with probabilities 0.03/0.96/0.01 and its consistent 0.98 counterpart. Passing software tests establishes implementation checks, not out-of-sample strategy validity.
 
-1. Compare 63-, 126-, and 252-trading-day momentum windows.
-2. Compare top-1, top-3, and top-5 portfolio sizes.
-3. Test several cost assumptions, such as 5, 10, 25, and 50 basis points.
-4. Add a time-based development versus holdout split.
-5. Add SPY as a separate informational benchmark.
-6. Test a broader pre-specified universe.
-7. Replace prototype data ingestion with a more controlled provider and dataset.
+## Next Research Step
+
+Pre-specify an out-of-sample validation protocol before inspecting holdout results: freeze the universe, signal lookback, holdings count, costs, benchmark, date boundaries, warm-up treatment, and evaluation criteria. Use a development period for choices, then evaluate once on an untouched holdout. Already-inspected history cannot become independent validation merely by relabeling it.
+
+The CLI does not currently automate a development/holdout split or record an out-of-sample test as completed. This is planned research work, not an existing validated result. Any later parameter, cost, or universe sensitivity studies should be specified separately and tracked; Jev never launches them.
 
 ## Disclaimer
 
