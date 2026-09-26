@@ -142,6 +142,33 @@ def _choice(answer: Any, allowed: set[str]) -> dict[str, Any]:
     return {"raw_choice": value, "display_value": value if confidence >= CONFIDENCE_THRESHOLD else "Ambiguous — no automated conclusion assigned.", "confidence": float(confidence), "probabilities": probabilities}
 
 
+def _score_mismatch_diagnostic(response: Any, score: Any, probabilities: dict[str, float],
+                               expected_score: float) -> str:
+    """Allowlisted diagnostics only; never serialize requests, headers, or full responses."""
+    try:
+        # Preserve the original JSON number spellings rather than round-tripping floats.
+        wire = json.loads(response.raw_http_response.content, parse_float=str, parse_int=str)
+        raw = wire["answers"]["overfitting_risk"]
+        raw_values = {"score": raw["score"],
+                      "probabilities": {level: raw["probabilities"][level] for level in ("0", "1", "2")}}
+    except Exception:
+        raw_values = None
+    try:
+        request_id = response.request_id
+    except Exception:
+        request_id = None
+    diagnostic = {
+        "question": "overfitting_risk",
+        "raw_numeric_tokens": raw_values,
+        "parsed": {"score": float(score.score), "probabilities": probabilities},
+        "expected_score": expected_score,
+        "absolute_difference": abs(float(score.score) - expected_score),
+        "returned_model": getattr(response, "model", None),
+        "request_id": request_id,
+    }
+    return json.dumps(diagnostic, allow_nan=False, ensure_ascii=True)
+
+
 def normalize_response(response: Any, run_id: str) -> dict[str, Any]:
     try:
         design = _choice(response.choices["design_status"], _CHOICES["design_status"])
@@ -157,7 +184,13 @@ def normalize_response(response: Any, run_id: str) -> dict[str, Any]:
     probabilities = _probabilities(score.probabilities, {"0", "1", "2"})
     expected_score = sum(int(level) * probability for level, probability in probabilities.items())
     if not math.isclose(float(score.score), expected_score, abs_tol=1e-6):
-        raise JevAuditError("Jev Score does not agree with its probability distribution.")
+        try:
+            diagnostic = _score_mismatch_diagnostic(response, score, probabilities, expected_score)
+        except Exception:
+            # Diagnostic failure must never turn a rejected response into an accepted one.
+            diagnostic = "unavailable"
+        raise JevAuditError("Jev Score does not agree with its probability distribution. "
+                            "Jev Score mismatch diagnostic: " + diagnostic)
     legend = {str(key): value for key, value in score.legend.items()} if isinstance(score.legend, Mapping) else {}
     if set(legend) != {"0", "1", "2"} or not _finite_json(legend):
         raise JevAuditError("Jev returned an invalid Score legend.")

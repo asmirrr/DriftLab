@@ -177,3 +177,102 @@ def test_audit_adapter_rejects_contradictory_mocked_sdk_http_response(monkeypatc
     assert result["requested_model"] == "jev-latest"
     assert result["returned_model"] == "jev-test-returned-model"
     assert result["answers"]["overfitting_risk"]["score"] == 1.0
+
+
+@pytest.mark.parametrize("request_id", ["offline-request-123", None])
+def test_score_mismatch_diagnostic_rejects_and_only_exposes_allowlisted_fields(monkeypatch, request_id):
+    import httpx2
+    import typesafe_sdk
+    from driftlab.jev_audit import _CHOICES
+
+    answers = {}
+    for name, options in _CHOICES.items():
+        selected = sorted(options)[0]
+        answers[name] = {"type": "choice", "choice": selected, "confidence": 1,
+                         "probabilities": {option: int(option == selected) for option in options}}
+    answers["survivorship_bias_material"] = {"type": "noul", "noul": .5}
+    answers["overfitting_risk"] = {
+        "type": "score", "score": 1.000002, "confidence": .8,
+        "probabilities": {"0": 0, "1": 1, "2": 0},
+        "legend": {"0": "low", "1": "medium", "2": "high"},
+    }
+    body = {"model": "jev-offline-test", "usage": {}, "answers": answers,
+            "unrelated": "do-not-capture-response-extra"}
+    # Deliberately preserve extra decimal digits in the raw wire number.
+    content = json.dumps(body).replace("1.000002", "1.000002000")
+    real_client = typesafe_sdk.TypeSafeClient
+    def handler(request):
+        headers = {"x-unrelated": "do-not-capture-header"}
+        if request_id is not None:
+            headers["x-typesafe-request-id"] = request_id
+        return httpx2.Response(200, content=content, headers=headers)
+    monkeypatch.setattr(typesafe_sdk, "TypeSafeClient",
+                        lambda **kwargs: real_client(**kwargs, transport=httpx2.MockTransport(handler)))
+    monkeypatch.setenv("TYPESAFE_API_KEY", "do-not-capture-api-key")
+    record = _valid_record()
+    record["research_question"] = "do-not-capture-research-record"
+    with pytest.raises(JevAuditError, match="Score does not agree") as error:
+        audit_research_record(record)
+    message = str(error.value)
+    diagnostic = json.loads(message.split("Jev Score mismatch diagnostic: ", 1)[1])
+    assert diagnostic == {
+        "question": "overfitting_risk",
+        "raw_numeric_tokens": {"score": "1.000002000", "probabilities": {"0": "0", "1": "1", "2": "0"}},
+        "parsed": {"score": 1.000002, "probabilities": {"0": 0.0, "1": 1.0, "2": 0.0}},
+        "expected_score": 1.0,
+        "absolute_difference": abs(1.000002 - 1.0),
+        "returned_model": "jev-offline-test",
+        "request_id": request_id,
+    }
+    assert "do-not-capture" not in message
+    assert "Authorization" not in message
+    # Even broken diagnostics must preserve the original rejection.
+    import driftlab.jev_audit as adapter
+    def broken_diagnostic(*args):
+        raise RuntimeError("do-not-capture-internal-error")
+    monkeypatch.setattr(adapter, "_score_mismatch_diagnostic", broken_diagnostic)
+    with pytest.raises(JevAuditError, match="Score does not agree") as error:
+        audit_research_record(record)
+    assert str(error.value).endswith("Jev Score mismatch diagnostic: unavailable")
+
+
+@pytest.mark.parametrize("returned_score", [0.97, 0.98], ids=["observed-inconsistent", "consistent"])
+def test_observed_jev_score_distribution_consistency(returned_score):
+    import httpx2
+    from typesafe_sdk import SystemOneResponse
+    from driftlab.jev_audit import _CHOICES
+
+    # Only Score/probabilities, model, and request ID are from the live diagnostic.
+    # Other required answer fields are synthetic; this is not a full live capture.
+    answers = {}
+    for name, options in _CHOICES.items():
+        selected = sorted(options)[0]
+        answers[name] = {"type": "choice", "choice": selected, "confidence": 1,
+                         "probabilities": {option: int(option == selected) for option in options}}
+    probabilities = {"0": 0.03, "1": 0.96, "2": 0.01}
+    answers["overfitting_risk"] = {
+        "type": "score", "score": returned_score, "confidence": .8,
+        "probabilities": probabilities, "legend": {"0": "low", "1": "medium", "2": "high"},
+    }
+    answers["survivorship_bias_material"] = {"type": "noul", "noul": .5}
+    request_id = "req_01a0db5603eb749ea7f5ea3213206929"
+    response = SystemOneResponse.from_http_response(httpx2.Response(
+        200, json={"model": "jev-1.13.0", "usage": {}, "answers": answers},
+        headers={"x-typesafe-request-id": request_id},
+    ))
+    if returned_score == 0.97:
+        with pytest.raises(JevAuditError, match="Jev Score does not agree with its probability distribution") as error:
+            normalize_response(response, "offline-regression")
+        diagnostic = json.loads(str(error.value).split("Jev Score mismatch diagnostic: ", 1)[1])
+        assert diagnostic["raw_numeric_tokens"] == {
+            "score": "0.97", "probabilities": {"0": "0.03", "1": "0.96", "2": "0.01"}}
+        assert diagnostic["parsed"] == {"score": 0.97, "probabilities": probabilities}
+        assert diagnostic["expected_score"] == 0.98
+        assert diagnostic["absolute_difference"] == 0.010000000000000009
+        assert diagnostic["returned_model"] == "jev-1.13.0"
+        assert diagnostic["request_id"] == request_id
+    else:
+        normalized = normalize_response(response, "offline-regression")
+        assert normalized["audit_status"] == "completed"
+        assert normalized["answers"]["overfitting_risk"]["score"] == 0.98
+        assert normalized["answers"]["overfitting_risk"]["probabilities"] == probabilities

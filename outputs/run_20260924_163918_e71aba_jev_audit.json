@@ -1,0 +1,60 @@
+{
+  "run_id": "run_20260924_163918_e71aba",
+  "provider": "TypeSafe Jev direct API",
+  "requested_model": "jev-latest",
+  "returned_model": "jev-1.13.0",
+  "audit_status": "completed",
+  "confidence_threshold": 0.65,
+  "answers": {
+    "design_status": {
+      "raw_choice": "exploratory_ready",
+      "display_value": "exploratory_ready",
+      "confidence": 0.99,
+      "probabilities": {
+        "exploratory_ready": 0.99,
+        "insufficient": 0.01,
+        "validation_ready": 0.0
+      }
+    },
+    "result_label": {
+      "raw_choice": "requires_validation",
+      "display_value": "Ambiguous \u2014 no automated conclusion assigned.",
+      "confidence": 0.41,
+      "probabilities": {
+        "exploratory_signal": 0.37,
+        "requires_validation": 0.61,
+        "inconclusive": 0.02
+      }
+    },
+    "overfitting_risk": {
+      "score": 0.97,
+      "derived_label": "medium",
+      "confidence": 0.92,
+      "probabilities": {
+        "0": 0.04,
+        "1": 0.95,
+        "2": 0.01
+      },
+      "legend": {
+        "0": "low: parameters were pre-specified and a meaningful independent validation process was used.",
+        "1": "medium: a small or limited parameter search occurred, but validation is incomplete.",
+        "2": "high: multiple strategy variants, parameters, or selection choices were tested without a defined validation process."
+      }
+    },
+    "survivorship_bias_material": {
+      "probability": 0.75
+    },
+    "next_experiment": {
+      "raw_choice": "out_of_sample_split",
+      "display_value": "out_of_sample_split",
+      "confidence": 0.78,
+      "probabilities": {
+        "cost_sensitivity": 0.01,
+        "out_of_sample_split": 0.83,
+        "parameter_sensitivity": 0.02,
+        "universe_expansion": 0.14
+      }
+    }
+  },
+  "policy_note": "Jev output is a structured research-workflow aid, not financial advice, a trading instruction, or evidence of future performance."
+}
